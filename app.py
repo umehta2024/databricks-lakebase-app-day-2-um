@@ -16,6 +16,7 @@ import re
 import requests
 from databricks.sdk import WorkspaceClient
 from flask import Flask, jsonify, render_template, request
+import numpy as np
 
 import lakebase
 from massive_client import MassiveClient
