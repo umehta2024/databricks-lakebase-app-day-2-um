@@ -30,6 +30,8 @@ _w = WorkspaceClient()
 TABLE_NAME = os.environ.get("MASSIVE_TABLE_NAME", "massive_records")
 WATCHLIST_TABLE_NAME = os.environ.get("WATCHLIST_TABLE_NAME", "watchlist")
 NEWS_TABLE_NAME = os.environ.get("NEWS_TABLE_NAME", "ticker_news_documents")
+CHUNK_EMBEDDINGS_TABLE_NAME = os.environ.get("CHUNK_EMBEDDINGS_TABLE_NAME", "ticker_news_chunk_embeddings")
+EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 
 # Tickers to fetch news for by default (comma-separated), e.g. "AAPL,MSFT,GOOGL"
 DEFAULT_NEWS_TICKERS = [
@@ -285,6 +287,85 @@ def delete_from_watchlist(symbol: str):
         return jsonify({"error": f"{symbol} is not on your watchlist"}), 404
 
     return jsonify({"symbol": symbol, "email": email, "deleted": True})
+
+
+@app.route("/vector/search", methods=["POST"])
+def vector_search():
+    """
+    Semantic search over ticker news chunks using vector embeddings.
+    
+    Body (JSON): {"query": "your search prompt", "top_k": 5}
+    Returns the top_k most relevant document chunks with their metadata.
+    """
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 400
+    
+    query = request.json.get("query", "").strip()
+    top_k = int(request.json.get("top_k", 5))
+    
+    if not query:
+        return jsonify({"error": "Query parameter is required"}), 400
+    
+    if top_k < 1 or top_k > 50:
+        return jsonify({"error": "top_k must be between 1 and 50"}), 400
+    
+    try:
+        # Generate embedding for the query
+        query_embedding = _generate_embedding(query)
+        
+        # Convert embedding to PostgreSQL array format
+        embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
+        
+        # Perform vector similarity search using pgvector's cosine distance
+        # Returns chunks ordered by similarity (lower distance = more similar)
+        rows = lakebase.run_query(
+            f"""
+            SELECT 
+                ce.id,
+                ce.article_id,
+                ce.ticker,
+                ce.chunk_index,
+                ce.chunk_text,
+                ce.embedding <=> %s::vector AS distance,
+                1 - (ce.embedding <=> %s::vector) AS similarity,
+                nd.title,
+                nd.description,
+                nd.article_url,
+                nd.published_utc,
+                nd.sentiment,
+                nd.sentiment_reasoning
+            FROM {CHUNK_EMBEDDINGS_TABLE_NAME} ce
+            LEFT JOIN {NEWS_TABLE_NAME} nd ON ce.article_id = nd.id
+            ORDER BY ce.embedding <=> %s::vector
+            LIMIT %s
+            """,
+            (embedding_str, embedding_str, embedding_str, top_k),
+        )
+        
+        return jsonify({
+            "query": query,
+            "results": rows,
+            "count": len(rows)
+        })
+        
+    except Exception as e:
+        logger.exception("Error performing vector search")
+        return jsonify({"error": str(e)}), 500
+
+
+def _generate_embedding(text: str) -> list[float]:
+    """
+    Generate a vector embedding for the given text using the configured model.
+    Lazy-loads the sentence transformer model on first use.
+    """
+    global _embedding_model
+    if "_embedding_model" not in globals():
+        from sentence_transformers import SentenceTransformer
+        logger.info(f"Loading embedding model: {EMBEDDING_MODEL}")
+        _embedding_model = SentenceTransformer(EMBEDDING_MODEL)
+    
+    embedding = _embedding_model.encode(text, convert_to_numpy=True)
+    return embedding.tolist()
 
 
 def _extract_latest_price(data: dict) -> float | None:
