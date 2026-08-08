@@ -142,8 +142,23 @@
   </style>
 </head>
 <body>
-  <h1>Stock Watchlist</h1>
-  <p class="hint">Enter a single ticker symbol. This sends exactly ONE call to the Massive API to fetch the latest price, then adds it to your watchlist.</p>
+  <h1>Stock Watchlist & News Search</h1>
+  <p class="hint">Manage your watchlist and search through news articles using AI-powered semantic search.</p>
+
+  <!-- Vector Search Section -->
+  <div class="card">
+    <h2 style="font-size: 18px; font-weight: 700; margin: 0 0 8px 0;">📰 Semantic News Search</h2>
+    <p class="hint" style="margin-top: 0;">Ask questions about news articles related to your watchlist stocks. Results are powered by AI embeddings.</p>
+    
+    <form id="search-form">
+      <label for="search-query">Search query</label>
+      <input type="text" id="search-query" name="query" placeholder="What news about AI developments affecting tech stocks?" required>
+      <button type="submit">Search</button>
+    </form>
+
+    <div id="search-result"></div>
+    <div id="search-results-container"></div>
+  </div>
 
   <div class="card">
     <form id="stock-form">
