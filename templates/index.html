@@ -142,23 +142,8 @@
   </style>
 </head>
 <body>
-  <h1>Stock Watchlist & News Search</h1>
-  <p class="hint">Manage your watchlist and search through news articles using AI-powered semantic search.</p>
-
-  <!-- Vector Search Section -->
-  <div class="card">
-    <h2 style="font-size: 18px; font-weight: 700; margin: 0 0 8px 0;">📰 Semantic News Search</h2>
-    <p class="hint" style="margin-top: 0;">Ask questions about news articles related to your watchlist stocks. Results are powered by AI embeddings.</p>
-    
-    <form id="search-form">
-      <label for="search-query">Search query</label>
-      <input type="text" id="search-query" name="query" placeholder="What news about AI developments affecting tech stocks?" required>
-      <button type="submit">Search</button>
-    </form>
-
-    <div id="search-result"></div>
-    <div id="search-results-container"></div>
-  </div>
+  <h1>Stock Watchlist</h1>
+  <p class="hint">Enter a single ticker symbol. This sends exactly ONE call to the Massive API to fetch the latest price, then adds it to your watchlist.</p>
 
   <div class="card">
     <form id="stock-form">
@@ -279,6 +264,70 @@
     });
 
     loadWatchlist();
+
+    // Vector search form handler
+    searchForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const query = document.getElementById("search-query").value;
+      searchResultEl.textContent = "Searching for relevant news...";
+      searchResultsContainer.innerHTML = "";
+
+      try {
+        const resp = await fetch("/vector/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query, top_k: 5 }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          searchResultEl.textContent = "Error: " + (data.error || resp.statusText);
+          return;
+        }
+        
+        searchResultEl.textContent = "";
+        
+        if (!data.results || data.results.length === 0) {
+          searchResultEl.textContent = "No results found. Make sure news has been synced and embeddings have been generated.";
+          return;
+        }
+
+        searchResultsContainer.innerHTML = '<div class="search-results"></div>';
+        const resultsDiv = searchResultsContainer.querySelector(".search-results");
+        
+        data.results.forEach((result, idx) => {
+          const similarity = (result.similarity * 100).toFixed(1);
+          const sentimentClass = result.sentiment ? `sentiment-${result.sentiment.toLowerCase()}` : "";
+          const sentimentLabel = result.sentiment || "neutral";
+          
+          const published = result.published_utc 
+            ? new Date(result.published_utc).toLocaleDateString() 
+            : "Unknown date";
+          
+          const resultHtml = `
+            <div class="result-item">
+              <div class="result-header">
+                <div>
+                  <span class="result-ticker">${result.ticker}</span>
+                  <span class="result-similarity">${similarity}% match</span>
+                  ${result.sentiment ? `<span class="sentiment ${sentimentClass}">${sentimentLabel}</span>` : ""}
+                </div>
+              </div>
+              <h3 class="result-title">${result.title || "Untitled Article"}</h3>
+              <div class="result-meta">
+                Published: ${published} | Chunk ${result.chunk_index + 1}
+              </div>
+              <div class="result-chunk">${result.chunk_text}</div>
+              ${result.article_url ? `<a href="${result.article_url}" target="_blank" class="result-link">Read full article →</a>` : ""}
+            </div>
+          `;
+          resultsDiv.innerHTML += resultHtml;
+        });
+        
+        searchResultEl.textContent = `Found ${data.count} relevant ${data.count === 1 ? 'result' : 'results'} for "${query}"`;
+      } catch (err) {
+        searchResultEl.textContent = "Request failed: " + err;
+      }
+    });
   </script>
 </body>
 </html>
